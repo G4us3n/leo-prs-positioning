@@ -1,0 +1,23 @@
+# Generated results (figures, GIFs, frames, data dumps)
+results/
+**/heatmap_frames/
+*.gif
+
+# MATLAB artefacts
+*.asv
+*.mex*
+*.mat
+*.slxc
+slprj/
+codegen/
+*.autosave
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*~
+
+# The original monolithic reference is kept locally for diffing but not tracked
+_original_reference.m
