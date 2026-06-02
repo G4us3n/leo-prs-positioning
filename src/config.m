@@ -37,19 +37,49 @@ cfg.cityNetwork = {
 };
 
 % ---------------------------------------------------------------------
-% Constellation geometry  (the "train" baseline: 4 planes x 3 sats)
+% Constellation geometry
 % ---------------------------------------------------------------------
-% These four fields are the main knobs for the "test different satellite
-% configurations" task. Increase the train_nu spacing to widen along-track
-% separation, or widen plane_raan_offsets to extend transversal coverage.
+% Three labelled configurations are provided.  Activate exactly one block
+% by uncommenting it; comment out the other two.
+%
+%   Geometry A  4×3 baseline "train"  — tightly clustered, RAAN spread 3°,
+%               NU spread 3°.  Worst DOP, best link margin (sats near zenith).
+%
+%   Geometry B  4×3 Starlink Shell-1 inspired (DEFAULT) — four adjacent
+%               planes at 5° RAAN spacing (real Starlink 53°/540 km shell).
+%               NU offset compressed to ±10° (real spacing ~16.4°) to keep
+%               all satellites inside the ±3 min zenith window.  Raise
+%               windowMinutes to 5 to test the full 16.4° real spacing.
+%
+%   Geometry C  5×4 expanded constellation — one extra plane and one extra
+%               satellite per plane; 10° RAAN spacing; NU at ±9°/±3°.
+%
+cfg.altitude_m      = 6871000;   % semi-major axis [m]  (~500 km altitude)
+cfg.eccentricity    = 0;
+cfg.argPerigee      = 0;
+cfg.inclination_deg = 53.0;
+
+% ---- Geometry A : 4×3 baseline "train" (comment in to activate) ----
+% cfg.nPlanes            = 4;
+% cfg.nSatsPerPlane      = 3;
+% cfg.plane_raan_offsets = [ -1.0,  0.0, +1.0, +2.0];  % 1° spacing, 3° total
+% cfg.train_nu_offsets   = [+1.5,  0.0, -1.5];          % 1.5° spacing, 3° total
+
+% ---- Geometry B : 4×3 Starlink Shell-1 inspired [ACTIVE] -----------
+% Adjacent Starlink planes are separated by 5° in RAAN (72 planes, 53° inc).
+% Four consecutive planes give a 15° RAAN spread centred on the reference.
+% NU offset ±10° keeps every satellite within the ±3 min zenith window
+% (10° ÷ 0.063°/s ≈ 159 s ≈ 2.6 min lead/lag).
 cfg.nPlanes            = 4;
 cfg.nSatsPerPlane      = 3;
-cfg.altitude_m         = 6871000;          % semi-major axis [m] -> ~493 km alt
-cfg.eccentricity       = 0;
-cfg.argPerigee         = 0;
-cfg.inclination_deg    = 53.0;
-cfg.plane_raan_offsets = [-1, 0.0, +1, +2];   % per-plane RAAN offset [deg]
-cfg.train_nu_offsets   = [1.5, 0.0, -1.5];    % per-sat true-anomaly offset [deg]
+cfg.plane_raan_offsets = [ -7.5, -2.5, +2.5, +7.5];  % 5° spacing, 15° total
+cfg.train_nu_offsets   = [+10.0,  0.0, -10.0];        % ±10° along-track
+
+% ---- Geometry C : 5×4 expanded constellation (comment in to activate)
+% cfg.nPlanes            = 5;
+% cfg.nSatsPerPlane      = 4;
+% cfg.plane_raan_offsets = [-10.0, -5.0, 0.0, +5.0, +10.0];  % 5° spacing, 20° total
+% cfg.train_nu_offsets   = [+9.0, +3.0, -3.0, -9.0];          % ±9°/±3° along-track
 
 % ---------------------------------------------------------------------
 % Transmit antenna (phased array) and RF front end
