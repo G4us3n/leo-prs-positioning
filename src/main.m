@@ -84,6 +84,10 @@ if cfg.run.dop && isfield(ctx, 'ep')
     ctx = stage13_dop(cfg, ctx);
 end
 
+if cfg.run.leastSquares && isfield(ctx, 'history_all_Elev')
+    ctx = stage15_least_squares(cfg, ctx);
+end
+
 if cfg.run.viewer3D
     ctx = stage14_viewer(cfg, ctx);
 end

@@ -60,20 +60,20 @@ cfg.argPerigee      = 0;
 cfg.inclination_deg = 53.0;
 
 % ---- Geometry A : 4×3 baseline "train" (comment in to activate) ----
-% cfg.nPlanes            = 4;
-% cfg.nSatsPerPlane      = 3;
-% cfg.plane_raan_offsets = [ -1.0,  0.0, +1.0, +2.0];  % 1° spacing, 3° total
-% cfg.train_nu_offsets   = [+1.5,  0.0, -1.5];          % 1.5° spacing, 3° total
+cfg.nPlanes            = 4;
+cfg.nSatsPerPlane      = 3;
+cfg.plane_raan_offsets = [ -2.0,  0.0, +2.0, +4.0];  % 2° spacing, 6° total
+cfg.train_nu_offsets   = [+2,  0.0, -2];          % 2° spacing, 2° total
 
 % ---- Geometry B : 4×3 Starlink Shell-1 inspired [ACTIVE] -----------
 % Adjacent Starlink planes are separated by 5° in RAAN (72 planes, 53° inc).
 % Four consecutive planes give a 15° RAAN spread centred on the reference.
 % NU offset ±10° keeps every satellite within the ±3 min zenith window
 % (10° ÷ 0.063°/s ≈ 159 s ≈ 2.6 min lead/lag).
-cfg.nPlanes            = 4;
-cfg.nSatsPerPlane      = 3;
-cfg.plane_raan_offsets = [ -7.5, -2.5, +2.5, +7.5];  % 5° spacing, 15° total
-cfg.train_nu_offsets   = [+10.0,  0.0, -10.0];        % ±10° along-track
+% cfg.nPlanes            = 4;
+% cfg.nSatsPerPlane      = 3;
+% cfg.plane_raan_offsets = [ -7.5, -2.5, +2.5, +7.5];  % 5° spacing, 15° total
+% cfg.train_nu_offsets   = [+10.0,  0.0, -10.0];        % ±10° along-track
 
 % ---- Geometry C : 5×4 expanded constellation (comment in to activate)
 % cfg.nPlanes            = 5;
@@ -105,8 +105,8 @@ cfg.annualExceedance   = 1;    % % worst-case rain for the link budget
 % ---------------------------------------------------------------------
 % Geographic heatmap grid (Lombardy)
 % ---------------------------------------------------------------------
-cfg.latlim  = [44.0, 47.0];
-cfg.lonlim  = [7.4, 11.0];
+cfg.latlim  = [43.0, 48.0];
+cfg.lonlim  = [6.4, 12.0];
 cfg.spacing = 0.01;            % grid resolution [deg] ~ 1.1 km
 
 % ---------------------------------------------------------------------
@@ -144,6 +144,7 @@ cfg.run.monteCarlo      = true;
 cfg.run.xcorrPlots      = true;
 cfg.run.rmseSweep       = true;
 cfg.run.dop             = true;
+cfg.run.leastSquares    = true;
 cfg.run.viewer3D        = false;   % needs a display; off by default
 
 cfg.resultsDir = fullfile(fileparts(fileparts(mfilename('fullpath'))), 'results');
