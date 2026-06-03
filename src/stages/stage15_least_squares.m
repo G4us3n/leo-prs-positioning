@@ -19,6 +19,7 @@ function ctx = stage15_least_squares(cfg, ctx)
 
     ls_results.time_offsets = time_offsets(valid_time_indices);
     ls_results.est_pos = nan(num_steps, 3);
+    ls_results.error_horizontal = nan(num_steps, 1);
     ls_results.error_3d = nan(num_steps, 1);
     ls_results.num_sats_used = zeros(num_steps, 1);
 
@@ -52,7 +53,10 @@ function ctx = stage15_least_squares(cfg, ctx)
             
             if ~isnan(est_pos(1)) && norm(est_pos - true_pos_ecef) < 1e5
                 ls_results.est_pos(step_idx, :) = est_pos;
-                ls_results.error_3d(step_idx) = norm(est_pos - true_pos_ecef);
+                pos_error = est_pos - true_pos_ecef;
+
+                ls_results.error_3d(step_idx) = norm(pos_error);
+                ls_results.error_horizontal(step_idx) = norm(pos_error(1:2));
                 initial_guess = est_pos; % Update guess for next step
             end
         end
@@ -89,4 +93,40 @@ function [est_pos, est_clock, iter, GDOP] = ls_position_standard(sat_pos, pseudo
         if norm(delta_x(1:3)) < 1e-3, break; end
     end
     est_pos = x_state(1:3)'; est_clock = x_state(4); GDOP = 0;
+end
+
+function plot_ls_accuracy_evolution(ls_results)
+    t = ls_results.time_offsets;
+    err3d = ls_results.error_3d;
+    errH = ls_results.error_horizontal;
+    nSat = ls_results.num_sats_used;
+
+    rmse3d = sqrt(mean(err3d.^2, 'omitnan'));
+    mean3d = mean(err3d, 'omitnan');
+    r95_3d = prctile(err3d, 95);
+
+    figure('Name', 'Positioning Accuracy Evolution (LS)', 'Color', 'w');
+
+    subplot(3,1,1);
+    plot(t, err3d, 'b-', 'LineWidth', 2);
+    grid on;
+    xline(0, 'r--', 'Zenith');
+    ylabel('3D Error (m)');
+    title(sprintf('3D Accuracy: Mean = %.2f m, RMSE = %.2f m, R95 = %.2f m', ...
+        mean3d, rmse3d, r95_3d));
+
+    subplot(3,1,2);
+    plot(t, errH, 'm-', 'LineWidth', 2);
+    grid on;
+    xline(0, 'r--', 'Zenith');
+    ylabel('Horizontal Error (m)');
+    title('Horizontal Positioning Error');
+
+    subplot(3,1,3);
+    stairs(t, nSat, 'k-', 'LineWidth', 1.5);
+    grid on;
+    xline(0, 'r--', 'Zenith');
+    ylabel('Satellites Used');
+    xlabel('Time from Zenith (s)');
+    ylim([0 13]);
 end
