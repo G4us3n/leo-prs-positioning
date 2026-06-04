@@ -162,6 +162,15 @@ for r = 1:nRef
     fprintf(' Epoch Summary: %d visible links tested. Failing %dm threshold: %d links.\n', ...
             total_visible, acc_RMSE_m, nFail);
     fprintf(' Strongest overall link: %s (%.2f dB) | RMSE = %.2f m\n', best_loc, best_snr, best_rmse);
+
+    % SNR-after-FFT comparison for Milan's visible links (paper §II-B, eq. 7)
+    milan_snr_vec = ep(r).SNR_all(1, ~isnan(ep(r).SNR_all(1,:)));
+    if ~isempty(milan_snr_vec)
+        [fft_snr_vec, ~, ~, ~] = snr_after_fft(milan_snr_vec, L_prs, BW_prs, c);
+        fprintf(' SNR-after-FFT Milan (+%.0f dB gain): per-sample [%.1f, %.1f] dB  =>  post-FFT [%.1f, %.1f] dB\n', ...
+            10*log10(L_prs), min(milan_snr_vec), max(milan_snr_vec), ...
+            min(fft_snr_vec), max(fft_snr_vec));
+    end
 end
 
 % Export updated struct array back into context

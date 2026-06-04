@@ -10,4 +10,5 @@ function startup()
 thisDir = fileparts(mfilename('fullpath'));
 addpath(fullfile(thisDir, 'src'));
 addpath(fullfile(thisDir, 'src', 'stages'));
+addpath(fullfile(thisDir, 'src', 'lib'));
 end

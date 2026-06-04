@@ -23,8 +23,8 @@ trainStyles = {'-', '--', ':'};
 % ---------- Ground-track map ----------
 figure('Name', '6-Min Orbital Trajectories (12 Sats)', ...
        'Position', [100, 150, 800, 650], 'Color', 'w');
-worldmap([25 65], [-15 35]);          % Europe
-setm(gca, 'FFaceColor', [0.9 0.93 0.95]);
+worldmap([25 65], [-15 35]);
+setm(gca, 'MapProjection', 'mercator', 'FFaceColor', [0.9 0.93 0.95]);
 geoshow('landareas.shp', 'FaceColor', [0.95 0.95 0.90], 'HandleVisibility', 'off');
 hold on;
 

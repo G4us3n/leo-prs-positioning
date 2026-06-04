@@ -1,160 +1,236 @@
 function ctx = stage12_rmse_sweep(cfg, ctx)
-%STAGE12_RMSE_SWEEP  Ranging RMSE vs SNR sweep with CRLB and no-Doppler-compensation curves.
+%STAGE12_RMSE_SWEEP  Ranging RMSE vs SNR sweep for every numerology in cfg.prs_list.
 %
-%   Pipeline stage. Reads CTX/CFG, runs one section, returns updated CTX.
+%   Runs an independent Monte Carlo sweep for each entry in cfg.prs_list,
+%   regenerating the PRS waveform from scratch each time, and overlays all
+%   curves on a single figure following the issue-#2 style convention:
+%     color  — one per numerology (blue, orange, …)
+%     solid  — RMSE with Doppler compensation + parabolic interp
+%     dotted — RMSE without Doppler compensation
+%     dashed — CRLB (theoretical lower bound)
 
-c=ctx.c; prs_tx=ctx.prs_tx; Ts_prs=ctx.Ts_prs; range_per_sample=ctx.range_per_sample;
-L_prs=ctx.L_prs; BW_prs=ctx.BW_prs;
+c = ctx.c;
 
-% ----- original section body (unchanged physics) ---------------------
-fprintf('\n>>> Section 10: RMSE vs SNR — with Doppler + parabolic interp <<<\n');
+fprintf('\n>>> Stage 12: RMSE vs SNR — multi-numerology sweep <<<\n');
 
-SNR_sweep_dB    = cfg.mc.snrSweep_dB;            % SNR points to evaluate
-N_MC_sweep      = cfg.mc.nTrialsSweep;                  % MC iterations per SNR point
-int_delay       = 100;                  % Fixed integer delay [samples]
-doppler_test_Hz = cfg.mc.dopplerTest_Hz;                % 300 kHz (typical LEO at 20 GHz)
+SNR_sweep_dB    = cfg.mc.snrSweep_dB;
+N_MC_sweep      = cfg.mc.nTrialsSweep;
+int_delay       = 100;
+doppler_test_Hz = cfg.mc.dopplerTest_Hz;
+SNR_lin         = 10.^(SNR_sweep_dB / 10);
 
-% ---- Theoretical bounds ----
-SNR_lin       = 10.^(SNR_sweep_dB / 10);        % Linear SNR
-CRLB_dist     = c * sqrt(3) ./ (pi * BW_prs * sqrt(2 * L_prs * SNR_lin));
-    % ↑ per-sample CRLB: BW_prs = full active bandwidth; L_prs = integration length
-quant_floor_m = range_per_sample / sqrt(12);     % Quantisation-limited RMSE
+% ---- Create figure with dual y-axes ----
+fig_h = figure('Name', 'Ranging RMSE vs SNR — Multi-Numerology', ...
+    'Position', [250 200 1000 650], 'Color', 'w');
 
-% Pre-allocate results
-range_RMSE_interp    = nan(numel(SNR_sweep_dB), 1);   % With Doppler comp + parabolic interp
-range_RMSE_raw       = nan(numel(SNR_sweep_dB), 1);   % With Doppler comp, integer sample only
-range_RMSE_noDopComp = nan(numel(SNR_sweep_dB), 1);   % WITHOUT Doppler compensation
-detect_rate          = nan(numel(SNR_sweep_dB), 1);
+yyaxis left;  hold on; grid on; box on;
+set(gca, 'YScale', 'log');
+ylabel('Range RMSE (m)', 'FontWeight', 'bold', 'FontSize', 11);
+ylim([1e-2 1e5]);
 
-for sIdx = 1:numel(SNR_sweep_dB)
-    SNRdB      = SNR_sweep_dB(sIdx);
-    err_interp = nan(N_MC_sweep, 1);
-    err_raw    = nan(N_MC_sweep, 1);
-    err_noDop  = nan(N_MC_sweep, 1);
-    detected   = 0;
+yyaxis right; hold on;
+ylabel('Detection rate (%)', 'FontWeight', 'bold', 'FontSize', 11);
+ylim([0 110]);
 
-    for mc = 1:N_MC_sweep
-        % ---- Random fractional delay each trial ----
-        % This prevents the results from being biased by a specific
-        % "lucky" or "unlucky" delay alignment with the sample grid.
-        frac          = rand();
-        ref_delay_smp = int_delay + frac;
-        intRef        = floor(ref_delay_smp);
-        fracRef       = ref_delay_smp - intRef;
+all_results = cell(numel(cfg.prs_list), 1);
 
-        % ---- Build delayed reference ----
-        L_mc     = L_prs + intRef + 200;
-        Smc      = fft([prs_tx; zeros(L_mc - L_prs, 1)]);
-        kmc      = (0:L_mc-1).';
-        kmc(kmc > L_mc/2) = kmc(kmc > L_mc/2) - L_mc;
-        sig_frac = ifft(Smc .* exp(-1j*2*pi*kmc*fracRef/L_mc));
-        rx_t     = circshift(sig_frac, intRef);
-        rx_t(1:intRef) = 0;
+for n_idx = 1:numel(cfg.prs_list)
+    prs_cfg = cfg.prs_list{n_idx};
+    col     = prs_cfg.color;
 
-        % ---- Apply Doppler shift ----
-        t_vec_mc = (0:L_mc-1).' * Ts_prs;
-        rx_t_dop = rx_t .* exp(1j*2*pi*doppler_test_Hz*t_vec_mc);
+    % ---- Regenerate PRS waveform for this numerology ----
+    carrier                   = nrCarrierConfig;
+    carrier.SubcarrierSpacing = prs_cfg.subcarrierSpacing;
+    carrier.NSizeGrid         = prs_cfg.nSizeGrid;
+    carrier.CyclicPrefix      = 'normal';
+    carrier.NSlot             = 0;
+    carrier.NCellID           = prs_cfg.nCellID;
 
-        % ---- Add AWGN (per-sample SNR convention) ----
-        % The noise power is set so that:
-        %   SNR_per_sample = mean(|signal|²) / mean(|noise|²)
-        sig_pow = mean(abs(sig_frac).^2);
-        n_pow   = sig_pow / 10^(SNRdB/10);
-        noise_v = sqrt(n_pow/2) * (randn(L_mc,1) + 1j*randn(L_mc,1));
-        rx_mc   = rx_t_dop + noise_v;
+    prsCfg_n                       = nrPRSConfig;
+    prsCfg_n.PRSResourceSetPeriod  = [10 0];
+    prsCfg_n.PRSResourceOffset     = 0;
+    prsCfg_n.PRSResourceRepetition = 1;
+    prsCfg_n.NumRB                 = prs_cfg.nSizeGrid;
+    prsCfg_n.RBOffset              = 0;
+    prsCfg_n.CombSize              = prs_cfg.combSize;
+    prsCfg_n.NumPRSSymbols         = prs_cfg.numPRSSymbols;
+    prsCfg_n.SymbolStart           = 0;
+    prsCfg_n.REOffset              = 0;
+    prsCfg_n.NPRSID                = prs_cfg.nprsID;
 
-        % ---- WITH Doppler compensation ----
-        rx_mc_comp = rx_mc .* exp(-1j*2*pi*doppler_test_Hz*t_vec_mc);
+    prsSym = nrPRS(carrier, prsCfg_n);
+    prsInd = nrPRSIndices(carrier, prsCfg_n);
+    txGrid = nrResourceGrid(carrier);
+    txGrid(prsInd) = prsSym;
+    [prs_tx_n, ofdmInfo] = nrOFDMModulate(carrier, txGrid);
+    prs_tx_n = prs_tx_n / sqrt(mean(abs(prs_tx_n).^2));
 
-        [xcm, lgm] = xcorr(rx_mc_comp, prs_tx);
-        xcm_pos = abs(xcm(lgm >= 0));
-        lg_pos  = lgm(lgm >= 0);
-        [pkv, pki] = max(xcm_pos);
+    Ts_n            = 1 / ofdmInfo.SampleRate;
+    L_n             = length(prs_tx_n);
+    BW_n            = prs_cfg.nSizeGrid * 12 * prs_cfg.subcarrierSpacing * 1e3;
+    range_per_smp_n = c * Ts_n;
 
-        if pkv >= 4 * median(xcm_pos)
-            detected = detected + 1;
+    fprintf('\n  [%d] %s | SCS=%d kHz | BW=%.1f MHz | L=%d | range/smp=%.3f m\n', ...
+        n_idx, prs_cfg.label, prs_cfg.subcarrierSpacing, BW_n/1e6, L_n, range_per_smp_n);
 
-            % Raw (integer-sample) estimate
-            pk_raw      = lg_pos(pki);
-            err_raw(mc) = (pk_raw - ref_delay_smp) * range_per_sample;
+    % ---- Theoretical bounds ----
+    CRLB_n  = c * sqrt(3) ./ (pi * BW_n * sqrt(2 * L_n * SNR_lin));
+    quant_n = range_per_smp_n / sqrt(12);
 
-            % Parabolic interpolation
-            if pki > 1 && pki < numel(xcm_pos)
-                yA = xcm_pos(pki-1);  yB = xcm_pos(pki);  yC = xcm_pos(pki+1);
-                d  = 0.5 * (yA - yC) / (yA - 2*yB + yC);
-                pk_interp = lg_pos(pki) + d;
-            else
-                pk_interp = lg_pos(pki);
+    [snr_fft_dB_n, ~, crlb_fft_chk_n, ~] = snr_after_fft(SNR_sweep_dB, L_n, BW_n, c);
+    int_gain_dB_n = 10*log10(L_n);
+
+    % ---- Monte Carlo sweep ----
+    RMSE_dop   = nan(numel(SNR_sweep_dB), 1);
+    RMSE_nodop = nan(numel(SNR_sweep_dB), 1);
+    det_rate   = nan(numel(SNR_sweep_dB), 1);
+
+    for sIdx = 1:numel(SNR_sweep_dB)
+        SNRdB    = SNR_sweep_dB(sIdx);
+        err_dop  = nan(N_MC_sweep, 1);
+        err_nodop = nan(N_MC_sweep, 1);
+        detected = 0;
+
+        for mc = 1:N_MC_sweep
+            % Random fractional delay each trial (avoids grid-alignment bias)
+            frac          = rand();
+            ref_delay_smp = int_delay + frac;
+            intRef        = floor(ref_delay_smp);
+            fracRef       = ref_delay_smp - intRef;
+
+            L_mc     = L_n + intRef + 200;
+            Smc      = fft([prs_tx_n; zeros(L_mc - L_n, 1)]);
+            kmc      = (0:L_mc-1).';
+            kmc(kmc > L_mc/2) = kmc(kmc > L_mc/2) - L_mc;
+            sig_frac = ifft(Smc .* exp(-1j*2*pi*kmc*fracRef/L_mc));
+            rx_t     = circshift(sig_frac, intRef);
+            rx_t(1:intRef) = 0;
+
+            t_vec_mc = (0:L_mc-1).' * Ts_n;
+            rx_t_dop = rx_t .* exp(1j*2*pi*doppler_test_Hz*t_vec_mc);
+
+            sig_pow = mean(abs(sig_frac).^2);
+            n_pow   = sig_pow / 10^(SNRdB/10);
+            noise_v = sqrt(n_pow/2) * (randn(L_mc,1) + 1j*randn(L_mc,1));
+            rx_mc   = rx_t_dop + noise_v;
+
+            % With Doppler compensation
+            rx_comp = rx_mc .* exp(-1j*2*pi*doppler_test_Hz*t_vec_mc);
+            [xcm, lgm] = xcorr(rx_comp, prs_tx_n);
+            xcm_pos = abs(xcm(lgm >= 0));  lg_pos = lgm(lgm >= 0);
+            [pkv, pki] = max(xcm_pos);
+            if pkv >= 4 * median(xcm_pos)
+                detected = detected + 1;
+                if pki > 1 && pki < numel(xcm_pos)
+                    yA = xcm_pos(pki-1); yB = xcm_pos(pki); yC = xcm_pos(pki+1);
+                    d  = 0.5*(yA-yC)/(yA-2*yB+yC);
+                    pk_l = lg_pos(pki) + d;
+                else
+                    pk_l = lg_pos(pki);
+                end
+                err_dop(mc) = (pk_l - ref_delay_smp) * range_per_smp_n;
             end
-            err_interp(mc) = (pk_interp - ref_delay_smp) * range_per_sample;
+
+            % Without Doppler compensation
+            [xcm2, lgm2] = xcorr(rx_mc, prs_tx_n);
+            xcm2_pos = abs(xcm2(lgm2 >= 0));  lg2_pos = lgm2(lgm2 >= 0);
+            [pkv2, pki2] = max(xcm2_pos);
+            if pkv2 >= 4 * median(xcm2_pos)
+                if pki2 > 1 && pki2 < numel(xcm2_pos)
+                    yA2=xcm2_pos(pki2-1); yB2=xcm2_pos(pki2); yC2=xcm2_pos(pki2+1);
+                    d2  = 0.5*(yA2-yC2)/(yA2-2*yB2+yC2);
+                    pk2 = lg2_pos(pki2) + d2;
+                else
+                    pk2 = lg2_pos(pki2);
+                end
+                err_nodop(mc) = (pk2 - ref_delay_smp) * range_per_smp_n;
+            end
         end
 
-        % ---- WITHOUT Doppler compensation (to quantify degradation) ----
-        [xcm2, lgm2] = xcorr(rx_mc, prs_tx);     % Correlate WITHOUT Doppler removal
-        xcm2_pos = abs(xcm2(lgm2 >= 0));
-        lg2_pos  = lgm2(lgm2 >= 0);
-        [pkv2, pki2] = max(xcm2_pos);
-        if pkv2 >= 4 * median(xcm2_pos)
-            if pki2 > 1 && pki2 < numel(xcm2_pos)
-                yA2 = xcm2_pos(pki2-1);  yB2 = xcm2_pos(pki2);  yC2 = xcm2_pos(pki2+1);
-                d2 = 0.5 * (yA2 - yC2) / (yA2 - 2*yB2 + yC2);
-                pk2 = lg2_pos(pki2) + d2;
-            else
-                pk2 = lg2_pos(pki2);
-            end
-            err_noDop(mc) = (pk2 - ref_delay_smp) * range_per_sample;
-        end
+        valid_dop   = err_dop(~isnan(err_dop));
+        valid_nodop = err_nodop(~isnan(err_nodop));
+        if ~isempty(valid_dop),   RMSE_dop(sIdx)   = sqrt(mean(valid_dop.^2));   end
+        if ~isempty(valid_nodop), RMSE_nodop(sIdx)  = sqrt(mean(valid_nodop.^2)); end
+        det_rate(sIdx) = detected / N_MC_sweep;
     end
 
-    % Compute RMSE for this SNR point
-    valid_interp = err_interp(~isnan(err_interp));
-    valid_raw    = err_raw   (~isnan(err_raw));
-    valid_noDop  = err_noDop (~isnan(err_noDop));
-    if ~isempty(valid_interp)
-        range_RMSE_interp(sIdx) = sqrt(mean(valid_interp.^2));
-        range_RMSE_raw   (sIdx) = sqrt(mean(valid_raw.^2));
+    % ---- Plot this numerology ----
+    col_light = 0.55*col + 0.45*[1 1 1];  % lighter shade for no-Doppler and detection
+
+    yyaxis left;
+    semilogy(SNR_sweep_dB, RMSE_dop,   '-',  'Color', col, 'LineWidth', 2.5, ...
+        'DisplayName', sprintf('RMSE Doppler comp — %s', prs_cfg.label));
+    semilogy(SNR_sweep_dB, RMSE_nodop, ':',  'Color', col_light, 'LineWidth', 1.8, ...
+        'DisplayName', sprintf('RMSE no Doppler — %s', prs_cfg.label));
+    semilogy(SNR_sweep_dB, CRLB_n,     '--', 'Color', col, 'LineWidth', 1.8, ...
+        'DisplayName', sprintf('CRLB — %s', prs_cfg.label));
+    if n_idx == 1
+        yline(quant_n, 'm:', 'LineWidth', 1.2, 'HandleVisibility', 'off');
+        text(SNR_sweep_dB(end), quant_n*1.6, 'Sample res.', ...
+            'FontSize', 8, 'Color', 'm', 'HorizontalAlignment', 'right');
     end
-    if ~isempty(valid_noDop)
-        range_RMSE_noDopComp(sIdx) = sqrt(mean(valid_noDop.^2));
-    end
-    detect_rate(sIdx) = detected / N_MC_sweep;
+
+    yyaxis right;
+    plot(SNR_sweep_dB, det_rate*100, ':', 'Color', col_light, 'LineWidth', 1.2, ...
+        'HandleVisibility', 'off');
+
+    % ---- Store results ----
+    all_results{n_idx} = struct( ...
+        'label', prs_cfg.label, 'col', col, ...
+        'RMSE_dop', RMSE_dop, 'RMSE_nodop', RMSE_nodop, 'CRLB', CRLB_n, ...
+        'det_rate', det_rate, 'L', L_n, 'BW', BW_n, 'quant', quant_n, ...
+        'snr_fft_dB', snr_fft_dB_n, 'int_gain_dB', int_gain_dB_n, ...
+        'crlb_fft_chk', crlb_fft_chk_n);
 end
 
-% ---- Plot ----
-figure('Name','Ranging RMSE vs SNR','Position',[250 200 950 650],'Color','w');
+% ---- Finalise plot ----
+yyaxis left;
+ax_main = gca;
+xlabel('Per-sample SNR  (dB)', 'FontWeight', 'bold', 'FontSize', 11);
+title('PRS Ranging Accuracy vs SNR — Multi-Numerology (with Doppler)', ...
+    'FontSize', 13, 'FontWeight', 'bold');
+legend('Location', 'southwest', 'FontSize', 8);
 
-yyaxis left        % Left Y axis: RMSE [m], log scale
-semilogy(SNR_sweep_dB, range_RMSE_interp, 'b-', 'LineWidth', 2.5, ...
-         'DisplayName', 'RMSE — Doppler comp + parabolic'); hold on;
-semilogy(SNR_sweep_dB, range_RMSE_noDopComp, 'r-', 'LineWidth', 1.8, ...
-         'DisplayName', sprintf('RMSE — NO Doppler comp (f_d=%.0f kHz)', doppler_test_Hz/1e3));
-semilogy(SNR_sweep_dB, CRLB_dist, 'k--', 'LineWidth', 1.8, ...
-         'DisplayName', sprintf('CRLB (B=%.1f MHz, L=%d)', BW_prs/1e6, L_prs));
-yline(quant_floor_m, 'm:', 'Sample resolution', 'LineWidth', 1.5, 'HandleVisibility','off');
-grid on; box on;
-ylabel('Range RMSE (m)', 'FontWeight','bold','FontSize',11);
-ylim([1e-2 1e5]);
-ax = gca;  ax.YColor = 'k';
+yyaxis right;
+ax_main.YColor = [0.4 0.4 0.4];
 
-yyaxis right       % Right Y axis: detection rate [%]
-plot(SNR_sweep_dB, detect_rate*100, ':', 'Color', [0.5 0.5 0.5], 'LineWidth', 1.5, ...
-     'DisplayName', 'Detection rate');
-ylabel('Detection rate (%)', 'FontWeight','bold','FontSize',11);
-ylim([0 110]);  ax.YColor = [0.4 0.4 0.4];
+% ---- Print summary ----
+fprintf('\n  %-20s  %-8s  %-8s  %-14s  %-14s\n', ...
+    'Numerology', 'BW(MHz)', 'L_prs', 'CRLB@0dB(m)', 'CRLB@20dB(m)');
+fprintf('  %s\n', repmat('-', 1, 68));
+for n_idx = 1:numel(cfg.prs_list)
+    r = all_results{n_idx};
+    fprintf('  %-20s  %-8.1f  %-8d  %-14.4f  %-14.4f\n', ...
+        r.label, r.BW/1e6, r.L, ...
+        r.CRLB(SNR_sweep_dB == 0), r.CRLB(SNR_sweep_dB == 20));
+end
 
-xlabel('SNR (dB)','FontWeight','bold','FontSize',11);
-title('PRS Ranging Accuracy vs SNR (with Doppler)', 'FontSize',13,'FontWeight','bold');
-legend('Location','southwest','FontSize',9);
+fprintf('\n  --- SNR-after-FFT verification (paper §II-B, eq. 7) ---\n');
+for n_idx = 1:numel(cfg.prs_list)
+    r = all_results{n_idx};
+    fprintf('  %s — coherent integration gain: +%.1f dB  (L=%d)\n', ...
+        r.label, r.int_gain_dB, r.L);
+    fprintf('  %-16s  %-18s  %-12s  %s\n', ...
+        'SNR_sample(dB)', 'SNR_post-FFT(dB)', 'CRLB_fft(m)', '|Delta CRLB|(m)');
+    fprintf('  %s\n', repmat('-', 1, 68));
+    for snr_key = [-10, 0, 10, 20]
+        idx = find(SNR_sweep_dB == snr_key, 1);
+        if ~isempty(idx)
+            diff_m = abs(r.crlb_fft_chk(idx) - r.CRLB(idx));
+            fprintf('  %+12.1f dB      %+14.1f dB      %8.4f m    %.2e m\n', ...
+                SNR_sweep_dB(idx), r.snr_fft_dB(idx), r.crlb_fft_chk(idx), diff_m);
+        end
+    end
+end
 
-fprintf('\n  BW_prs          : %.2f MHz   (full active pilot span)\n', BW_prs/1e6);
-fprintf('  L_prs           : %d samples (matched-filter length)\n', L_prs);
-fprintf('  Doppler test    : %.0f kHz\n',  doppler_test_Hz/1e3);
-fprintf('  CRLB @ SNR=0 dB : %.4f m\n',   CRLB_dist(SNR_sweep_dB==0));
-fprintf('  CRLB @ SNR=20dB : %.4f m\n',   CRLB_dist(SNR_sweep_dB==20));
-
-% ----- export results into the shared context ------------------------
-ctx.SNR_sweep_dB=SNR_sweep_dB; ctx.CRLB_dist=CRLB_dist;
-ctx.range_RMSE_interp=range_RMSE_interp; ctx.range_RMSE_raw=range_RMSE_raw;
-ctx.range_RMSE_noDopComp=range_RMSE_noDopComp; ctx.detect_rate=detect_rate;
+% ---- Export — first numerology kept for backward compat ----
+r1 = all_results{1};
+ctx.SNR_sweep_dB         = SNR_sweep_dB;
+ctx.CRLB_dist            = r1.CRLB;
+ctx.range_RMSE_interp    = r1.RMSE_dop;
+ctx.range_RMSE_raw       = r1.RMSE_dop;
+ctx.range_RMSE_noDopComp = r1.RMSE_nodop;
+ctx.detect_rate          = r1.det_rate;
+ctx.all_rmse_results     = all_results;
 
 end
