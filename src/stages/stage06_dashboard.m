@@ -17,8 +17,10 @@ history_all_Doppler=ctx.history_all_Doppler;
 sat_Trace_Lat=ctx.sat_Trace_Lat; sat_Trace_Lon=ctx.sat_Trace_Lon;
 
 % ----- original section body (unchanged physics) ---------------------
-planeColors = [1 0 0; 0 0.7 0; 0 0.3 1; 0.8 0.5 0];
-trainStyles = {'-', '--', ':'};
+base_colors = [1 0 0; 0 0.7 0; 0 0.3 1; 0.8 0.5 0; 0.5 0 0.8];
+planeColors = base_colors(1:nPlanes, :);
+base_styles = {'-', '--', ':', '-.'};
+trainStyles = base_styles(1:nSatsPerPlane);
 
 % ---------- Ground-track map ----------
 figure('Name', '6-Min Orbital Trajectories (12 Sats)', ...
@@ -156,5 +158,56 @@ sgtitle('Per-City SNR vs Time — Selection Envelope', 'FontWeight','bold', 'Fon
 
 % ----- export results into the shared context ------------------------
 % (dashboard stage produces figures only)
+
+% ---------- Ground-track GIF animation ----------
+if cfg.run.gif
+    nGifFrames  = 10;
+    gif_delay_s = 0.4;
+    gifPath     = fullfile(cfg.resultsDir, 'ground_track.gif');
+    frameIndices = round(linspace(1, numEpochs, nGifFrames));
+
+    fprintf('\n  Generating ground-track GIF (%d frames)...\n', nGifFrames);
+
+    for fr = 1:nGifFrames
+        tIdx   = frameIndices(fr);
+        relSec = seconds(ctx.timeVec(tIdx) - zenithTime);
+
+        fig = figure('Visible', 'off', 'Position', [100 150 800 650], 'Color', 'w');
+        worldmap([25 65], [-15 35]);
+        setm(gca, 'MapProjection', 'mercator', 'FFaceColor', [0.9 0.93 0.95]);
+        geoshow('landareas.shp', 'FaceColor', [0.95 0.95 0.90], 'HandleVisibility', 'off');
+        hold on;
+
+        for sIdx = 1:nSats
+            p = satPlaneIdx(sIdx);
+            plotm(sat_Trace_Lat(:,sIdx), sat_Trace_Lon(:,sIdx), '-', ...
+                'Color', [planeColors(p,:) 0.15], 'LineWidth', 0.8, 'HandleVisibility', 'off');
+        end
+
+        for sIdx = 1:nSats
+            p = satPlaneIdx(sIdx);
+            plotm(sat_Trace_Lat(tIdx,sIdx), sat_Trace_Lon(tIdx,sIdx), 'o', ...
+                'Color', planeColors(p,:), 'MarkerFaceColor', planeColors(p,:), ...
+                'MarkerSize', 9, 'HandleVisibility', 'off');
+        end
+
+        plotm(cityNetwork{1,2}, cityNetwork{1,3}, 'p', 'Color', 'k', ...
+            'MarkerFaceColor', 'y', 'MarkerSize', 14, 'LineWidth', 1.5, 'HandleVisibility', 'off');
+
+        title(sprintf('LEO Ground Track  |  t = %+.0f s from zenith', relSec), ...
+            'FontSize', 11, 'FontWeight', 'bold');
+
+        frame = getframe(gcf);
+        [imInd, cMap] = rgb2ind(frame.cdata, 256);
+        if fr == 1
+            imwrite(imInd, cMap, gifPath, 'gif', 'Loopcount', inf, 'DelayTime', gif_delay_s);
+        else
+            imwrite(imInd, cMap, gifPath, 'gif', 'WriteMode', 'append', 'DelayTime', gif_delay_s);
+        end
+        close(fig);
+        fprintf('    Frame %2d/%d  (t = %+.0f s)\n', fr, nGifFrames, relSec);
+    end
+    fprintf('  Ground-track GIF saved: %s\n', gifPath);
+end
 
 end

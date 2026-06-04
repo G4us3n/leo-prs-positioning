@@ -21,14 +21,16 @@ centerLat=cfg.centerLat; centerLon=cfg.centerLon;
 % ----- original section body (unchanged physics) ---------------------
 fprintf('\n>>> Section 7c: Generating SNR Heatmap Animation (GIF) <<<\n');
 
+% ---- Build geographic grid (same as stage04) ----
+latVec = 44.0:0.01:47.0;
+lonVec =  7.4:0.01:11.0;
+[LonGrid, LatGrid] = meshgrid(lonVec, latVec);
+[x_grid, y_grid, z_grid] = geodetic2ecef(wgs84, LatGrid, LonGrid, 0);
+
 % ---- Animation parameters ----
-gif_step_s  = 10;       % One frame every 10 seconds (37 frames total)
-                         %   Use 5 for smoother animation (73 frames)
-                         %   Use 20 for faster computation  (19 frames)
-gif_delay_s = 0.3;      % Delay between frames in the GIF [s]
-                         %   0.3 gives a comfortable viewing speed
-gif_dpi     = 150;      % Resolution of each frame
-                         %   150 is a good balance between quality and file size
+gif_step_s  = 10;
+gif_delay_s = 0.3;
+gif_dpi     = 150;
 
 % ---- Build the time vector for the animation frames ----
 gif_timeVec = (zenithTime - seconds(90)) : seconds(gif_step_s) : (zenithTime + seconds(90));
@@ -200,7 +202,7 @@ end
 
 % ---- Assemble all frames into an animated GIF ----
 fprintf('\n  Assembling GIF...\n');
-gifName = 'fullfile(cfg.resultsDir,'snr_coverage.gif')';
+gifName = fullfile(cfg.resultsDir, 'snr_coverage.gif');
 
 for fr = 1:nFrames
     framePath = fullfile(gifDir, sprintf('frame_%03d.png', fr));
