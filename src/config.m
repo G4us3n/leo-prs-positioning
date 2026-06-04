@@ -120,6 +120,22 @@ cfg.prs.nCellID           = 1;
 cfg.prs.nprsID            = 100;
 
 % ---------------------------------------------------------------------
+% Multi-numerology list for stage12 RMSE sweep (issue #2)
+%   Each entry drives one independent sweep curve on the same plot.
+%   cfg.prs above (used by stage07 and all other stages) is unchanged.
+%   Style convention: blue = first entry, orange = second entry;
+%   solid = Doppler comp, dashed = CRLB, dotted = no Doppler comp.
+% ---------------------------------------------------------------------
+cfg.prs_list = {
+    struct('label', 'FR1 (30 kHz)',  'color', [0.00 0.45 0.74], ...
+           'subcarrierSpacing', 30,  'nSizeGrid', 51, 'combSize', 2, ...
+           'numPRSSymbols', 12, 'nCellID', 1, 'nprsID', 100), ...
+    struct('label', 'FR2 (120 kHz)', 'color', [0.85 0.33 0.10], ...
+           'subcarrierSpacing', 120, 'nSizeGrid', 66, 'combSize', 2, ...
+           'numPRSSymbols', 12, 'nCellID', 1, 'nprsID', 100), ...
+};
+
+% ---------------------------------------------------------------------
 % Monte Carlo ranging
 % ---------------------------------------------------------------------
 cfg.mc.nTrials        = 250;    % MC iterations per link (Section 8)
